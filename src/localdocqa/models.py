@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -87,7 +88,9 @@ class SearchHit:
     score: float
 
     def to_source(self, index: int, preview_chars: int = 220) -> Dict[str, Any]:
-        preview = " ".join(self.chunk.text.split())
+        # 预览里去掉 Markdown 标题符号，避免界面上一堆 "##"
+        raw = re.sub(r"(?m)^#{1,6}\s*", "", self.chunk.text)
+        preview = " ".join(raw.split())
         if len(preview) > preview_chars:
             preview = preview[:preview_chars] + "…"
         return {

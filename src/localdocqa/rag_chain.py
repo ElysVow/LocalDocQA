@@ -43,6 +43,20 @@ NO_HIT_HINT = (
 )
 
 _SENTENCE_SPLIT = re.compile(r"[。！？；\n]|(?<=[.!?])\s+")
+_HEADING_PREFIX = re.compile(r"^#+\s*")
+
+
+def _usable_sentences(text: str) -> list:
+    """把块内文本切成可用的句子：去掉 Markdown 标题符号，过滤过短行与表格/代码行。"""
+    result = []
+    for raw in _SENTENCE_SPLIT.split(text):
+        sentence = _HEADING_PREFIX.sub("", raw.strip()).strip()
+        if not sentence or len(sentence) < 12:
+            continue
+        if sentence.startswith(("|", "```", ">", "- ")) or sentence.count("|") >= 2:
+            continue
+        result.append(sentence)
+    return result
 
 
 def format_context(hits: Sequence[SearchHit], max_chars: int) -> tuple[str, List[Dict[str, Any]]]:
@@ -62,25 +76,45 @@ def format_context(hits: Sequence[SearchHit], max_chars: int) -> tuple[str, List
 
 
 def _extractive_answer(question: str, hits: Sequence[SearchHit], max_points: int = 3) -> str:
-    """无模型时的兜底：从命中文档里挑出与问题最相关的句子原样呈现。"""
+    """无模型时的兜底：从命中文档里挑出与问题最相关的句子原样呈现。
+
+    编号沿用 hits 的原始序号（与 format_context 生成的来源编号一致），
+    跳过与问题毫无词重合的段落，避免把凑数的无关文档放进答案。
+    """
     question_tokens = set(HashingEmbeddings._tokenize(question))
+    picked: list = []
+    for index, hit in enumerate(hits, start=1):
+        sentences = _usable_sentences(hit.chunk.text) or [hit.chunk.text.strip()[:200]]
+        scored = [
+            (len(question_tokens & set(HashingEmbeddings._tokenize(sentence))), len(sentence), sentence)
+            for sentence in sentences
+        ]
+        overlap, _, best = max(scored, key=lambda item: (item[0], item[1]))
+        if overlap <= 0 and picked:
+            continue
+        if len(best) > 260:
+            best = best[:260] + "…"
+        picked.append(f"{len(picked) + 1}. 根据 [{index}]：{best}")
+        if len(picked) >= max_points:
+            break
+
     lines = [
         "当前为**离线提取模式**（未连接大模型），以下内容直接从命中文档中摘录，未做归纳："
     ]
-    for point, hit in enumerate(hits[:max_points], start=1):
-        sentences = [s.strip() for s in _SENTENCE_SPLIT.split(hit.chunk.text) if s and s.strip()]
-        if not sentences:
-            sentences = [hit.chunk.text.strip()[:200]]
-        scored = [
-            (len(question_tokens & set(HashingEmbeddings._tokenize(sentence))), order, sentence)
-            for order, sentence in enumerate(sentences)
-        ]
-        best = max(scored)[2] if scored else sentences[0]
-        if len(best) > 260:
-            best = best[:260] + "…"
-        lines.append(f"{point}. 根据 [{point}]：{best}")
+    lines.extend(picked)
     lines.append("\n> 提示：启动本地模型（`ollama serve` + `ollama pull qwen2.5:7b`）后可获得归纳式回答。")
     return "\n".join(lines)
+
+
+def _llm_failure_note(config: Config, exc: Exception) -> str:
+    """把底层异常翻译成用户能照做的一句话，完整异常只写日志。"""
+    model = config.get("llm.model", "本地模型")
+    base_url = config.get("llm.base_url", "http://127.0.0.1:11434")
+    return (
+        f"\n\n> 本地模型暂时不可用（{base_url}，模型 {model}），已改用离线摘录。"
+        "确认 `ollama serve` 正在运行并已执行 `ollama pull "
+        f"{model}` 后重试，即可获得归纳式回答。"
+    )
 
 
 class RAGEngine:
@@ -250,7 +284,7 @@ class RAGEngine:
             except LLMError as exc:
                 logger.warning("模型调用失败，降级为离线提取：%s", exc)
                 text = _extractive_answer(question, context_hits)
-                note = f"\n\n> 模型调用失败：{exc}"
+                note = _llm_failure_note(self.config, exc)
 
         return Answer(
             question=question,
@@ -311,8 +345,7 @@ class RAGEngine:
                 used_llm = True
             except LLMError as exc:
                 logger.warning("流式生成失败，降级为离线提取：%s", exc)
-                note_prefix = f"\n\n> 模型调用失败：{exc}\n"
-                text = note_prefix + _extractive_answer(question, context_hits)
+                text = _extractive_answer(question, context_hits) + _llm_failure_note(self.config, exc)
                 collected = [text]
                 yield {"type": "token", "text": text}
 

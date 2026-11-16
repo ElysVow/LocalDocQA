@@ -58,6 +58,10 @@ class OllamaLLM(LLMClient):
             "options": {"temperature": self.temperature, "num_ctx": self.num_ctx},
         }
 
+    def _timeout(self) -> Tuple[float, float]:
+        """(连接, 读取)：本机服务未启动时 1 秒内失败，避免界面长时间无响应。"""
+        return (1.0, self.timeout)
+
     def chat(self, messages: List[Message], stream: bool = False) -> str | Iterator[str]:
         if stream:
             return self._stream(messages)
@@ -66,7 +70,7 @@ class OllamaLLM(LLMClient):
     def _complete(self, messages: List[Message]) -> str:
         url = f"{self.base_url}/api/chat"
         try:
-            response = requests.post(url, json=self._payload(messages, False), timeout=self.timeout)
+            response = requests.post(url, json=self._payload(messages, False), timeout=self._timeout())
         except requests.RequestException as exc:
             raise LLMError(f"连接 Ollama 失败（{url}）：{exc}") from exc
         if response.status_code == 404:
@@ -86,7 +90,7 @@ class OllamaLLM(LLMClient):
         url = f"{self.base_url}/api/chat"
         try:
             response = requests.post(
-                url, json=self._payload(messages, True), timeout=self.timeout, stream=True
+                url, json=self._payload(messages, True), timeout=self._timeout(), stream=True
             )
         except requests.RequestException as exc:
             raise LLMError(f"连接 Ollama 失败（{url}）：{exc}") from exc
@@ -116,7 +120,7 @@ class OllamaLLM(LLMClient):
 
     def health_check(self) -> Tuple[bool, str]:
         try:
-            response = requests.get(f"{self.base_url}/api/tags", timeout=8)
+            response = requests.get(f"{self.base_url}/api/tags", timeout=(1.0, 8))
             response.raise_for_status()
             models = [m.get("name", "") for m in response.json().get("models", [])]
         except (requests.RequestException, ValueError) as exc:

@@ -79,6 +79,9 @@ class HashingEmbeddings(EmbeddingProvider):
         elif chars:
             tokens.extend(chars)
         tokens.extend(_WORD.findall(lowered))
+        # 英文/数字术语（TCP、2MSL、RAG…）在技术文档里辨识度最高，重复一次提高权重，
+        # 避免被中文二字组合的噪声淹没。
+        tokens.extend(_WORD.findall(lowered))
         return tokens
 
     def embed_documents(self, texts: Sequence[str]) -> np.ndarray:
@@ -119,10 +122,14 @@ class OllamaEmbeddings(EmbeddingProvider):
         self.dim: Optional[int] = None
 
     # ------------------------------------------------------------ 低层请求
+    def _timeout(self) -> Tuple[float, float]:
+        """连接与读取分开设置：本机服务连不上时应快速失败，而不是等整个读取超时。"""
+        return (1.0, self.timeout)
+
     def _post(self, path: str, payload: Dict) -> Dict:
         url = f"{self.base_url}{path}"
         try:
-            response = requests.post(url, json=payload, timeout=self.timeout)
+            response = requests.post(url, json=payload, timeout=self._timeout())
         except requests.RequestException as exc:
             raise EmbeddingError(f"连接 Ollama 失败（{url}）：{exc}") from exc
         if response.status_code == 404:
@@ -184,7 +191,7 @@ class OllamaEmbeddings(EmbeddingProvider):
 def list_ollama_models(base_url: str = "http://127.0.0.1:11434", timeout: float = 10.0) -> List[str]:
     """列出本地 Ollama 已拉取的模型名，服务不可用时返回空列表。"""
     try:
-        response = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=timeout)
+        response = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=(1.0, timeout))
         response.raise_for_status()
         payload = response.json()
     except (requests.RequestException, ValueError):
