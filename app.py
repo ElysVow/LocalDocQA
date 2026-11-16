@@ -367,7 +367,11 @@ def main() -> None:
             "data/uploads/                          网页上传的原始文件",
             language="text",
         )
-        st.caption("图片来源/图标未内置，如需截图可自行补充到 assets/。")
+        st.subheader("技术栈")
+        st.caption(
+            "Python · Streamlit · numpy · pypdf · python-docx · Ollama ｜ "
+            "检索与生成全部在本机完成，无云端调用。"
+        )
 
 
 if __name__ == "__main__":
