@@ -84,6 +84,17 @@ def test_list_and_remove_document(config, docs_dir):
     assert len(list_documents("demo", config)) == 1
 
 
+def test_ingest_records_per_file_details(config, docs_dir):
+    embeddings = HashingEmbeddings()
+    report = ingest([str(docs_dir)], collection="demo", config=config, embeddings=embeddings)
+    statuses = {item["file"]: item["status"] for item in report.details}
+    assert statuses == {"a.md": "新增", "b.txt": "新增"}
+
+    repeat = ingest([str(docs_dir)], collection="demo", config=config, embeddings=embeddings)
+    skipped = {item["file"]: item["status"] for item in repeat.details}
+    assert skipped == {"a.md": "跳过", "b.txt": "跳过"}
+
+
 def test_registry_file_is_valid_json(config, docs_dir):
     ingest([str(docs_dir)], collection="demo", config=config, embeddings=HashingEmbeddings())
     path = config.collections_dir() / "demo" / "documents.json"

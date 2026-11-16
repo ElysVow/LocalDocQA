@@ -124,6 +124,13 @@ class VectorStore:
                 break
         return hits
 
+    def chunks_for_doc(self, doc_id: str) -> List[Chunk]:
+        """按顺序返回某文档的全部 chunk，供界面查看原文。"""
+        return sorted(
+            (chunk for chunk in self.chunks if chunk.doc_id == doc_id),
+            key=lambda chunk: chunk.chunk_index,
+        )
+
     def neighbors(self, chunk: Chunk, radius: int = 1) -> List[Chunk]:
         """取同一文档中相邻的 chunk，用于补全被切断的上下文。"""
         if radius <= 0:

@@ -21,11 +21,15 @@
 
 ## 界面
 
+![空态引导](docs/ui-01-home.png)
+
 ![问答界面](docs/ui-02-chat.png)
 
 ![来源溯源](docs/ui-03-sources.png)
 
-> 演示视频：[docs/demo.mp4](docs/demo.mp4)（37 秒，本机真实操作：切页 → 提问 → 展开来源 → 查看配置）
+![文档管理](docs/ui-04-docs.png)
+
+> 演示视频：[docs/demo.mp4](docs/demo.mp4)（本机真实操作：示例问题 → 回答与来源 → 文档详情 → 设置 → 关于）
 >
 > 截图来自本机真实运行（Windows 11 · Python 3.13），当时未安装 Ollama，所以显示的是离线提取模式。
 > 装好模型后同一位置显示的是模型归纳结果，但 `[编号]` 与来源列表的结构不变。
@@ -42,10 +46,14 @@
 | 本机向量库 | numpy + 余弦相似度，一个集合一个目录，只有 `chunks.jsonl` / `vectors.npy` / `meta.json` 三个文件 |
 | 本地推理 | 默认 Ollama（qwen2.5:7b + nomic-embed-text），也可接任意 OpenAI 兼容网关 |
 | 回答可溯源 | 上下文按 `[编号]` 拼接，界面和 CLI 都列出每段的文件名、页码、相似度、原文预览 |
+| 来源可读性 | 按提问与原文共有的短语高亮；每段可展开"查看原文"、整段回答可一键复制 |
+| 多轮对话 | 按集合落盘到 `data/conversations/`，刷新/重启接着聊；可重新生成上一条回答、导出 Markdown |
+| 知识库管理 | 文档详情（分段预览/文件信息/删除）、逐文件入库报告、集合 zip 打包与导入 |
+| 空态引导 | 三步说明 + 用当前文档生成的示例问题，点一下直接发起提问 |
 | 三层降级 | 没有模型 → 原文摘录；没有 embedding 服务 → 离线词法向量；服务报错 → 界面给提示而不是崩溃 |
 | 两种入口 | Streamlit 网页界面 + 命令行（`ingest` / `ask` / `search` / `list` / `stats` / `check`） |
 | 可评估 | `scripts/eval_rag.py` 用固定问题集算 hit@1、hit@k、关键词召回，结果可落 JSON |
-| 工程约束 | 48 项 pytest（含界面冒烟测试）、ruff 静态检查、GitHub Actions 四版本矩阵 + 端到端冒烟 |
+| 工程约束 | 69 项 pytest（含界面冒烟测试）、ruff 静态检查、GitHub Actions 四版本矩阵 + 端到端冒烟 |
 
 ---
 
@@ -145,8 +153,8 @@ python -m localdocqa list -c demo
 | `start.bat` | 启动网页界面，浏览器自动打开 `http://localhost:8501` |
 | `shell.bat` | 打开命令行窗口并激活 `.venv`，可直接输入 `localdocqa ...` |
 
-两者都假定项目根目录已有 `.venv`（第 3 步创建的）。`data/collections/demo` 里已带 3 份示例文档的索引，
-第一次打开就能直接提问；想换成自己的资料，在左侧新建集合后上传即可。
+两者都假定项目根目录已有 `.venv`（第 3 步创建的）。首次打开时集合是空的，点侧边栏的「导入示例文档」
+即可在几秒内建立 demo 索引；也可以直接新建集合上传自己的资料。
 
 ---
 
@@ -193,7 +201,7 @@ python scripts/eval_rag.py -c demo -k 5 --out docs/eval-report.json
 
 - 这组数字来自**离线词法向量**（二字组合哈希），不是语义模型，同义改写的问法召回不到属于预期行为；
   接上 `nomic-embed-text` 后的语义召回本机未验证，README 不写没有测过的数字。
-- 评估集只有 8 题，够用来发现"改坏了"，不足以证明模型好坏；扩充到 50+ 题是 v0.2 的任务之一。
+- 评估集只有 8 题，够用来发现"改坏了"，不足以证明模型好坏；继续扩充评估集仍是后续任务。
 
 ---
 
@@ -212,11 +220,14 @@ LocalDocQA/
 │   ├── llm.py                  Ollama / OpenAI 兼容客户端
 │   ├── rag_chain.py            检索 + 上下文 + prompt + 流式 + 降级
 │   ├── ingest.py               入库、去重、文档登记、删除
+│   ├── text_utils.py           清洗、预览、来源短语高亮
+│   ├── conversations.py        按集合落盘的对话记录
+│   ├── archive.py              集合 zip 导出/导入
 │   └── cli.py                  命令行子命令
 ├── scripts/
 │   ├── eval_rag.py             检索质量评估
 │   └── smoke_test.py           端到端冒烟（不依赖模型，CI 里跑）
-├── tests/                      48 项 pytest
+├── tests/                      69 项 pytest
 ├── examples/
 │   ├── sample_docs/            3 份示例文档（可直接入库体验）
 │   └── eval_set.jsonl          评估问题集
@@ -229,6 +240,7 @@ LocalDocQA/
 data/collections/<集合>/chunks.jsonl     文本分块，一行一个
 data/collections/<集合>/vectors.npy      归一化向量矩阵
 data/collections/<集合>/documents.json   文档登记表（含 SHA256）
+data/conversations/<集合>.json           对话记录（每集合一个文件）
 data/uploads/                            网页上传的原始文件
 ```
 
@@ -260,8 +272,9 @@ CI 在 3.10/3.11/3.12/3.13 四个版本上跑 lint + 测试，另有一个 job �
 
 ## 路线图
 
-短期与中期计划见 [docs/ROADMAP.md](docs/ROADMAP.md)。当前 v0.1 已完成：多格式入库、增量去重、本机向量库、
-带引用的问答、流式输出、CLI/Web 双入口、评估脚本、48 项测试与 CI。
+短期与中期计划见 [docs/ROADMAP.md](docs/ROADMAP.md)。当前 v0.2 已完成：多格式入库、增量去重、本机向量库、
+带引用的问答、流式输出、多轮对话落盘、来源高亮与原文、文档详情、集合打包导入导出、CLI/Web 双入口、评估脚本、
+69 项测试与 CI。
 
 ---
 

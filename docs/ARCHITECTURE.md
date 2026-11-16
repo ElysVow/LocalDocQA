@@ -14,9 +14,12 @@
 | `vector_store.py` | 向量矩阵、余弦检索、持久化、集合管理、相邻块查询 | 文本解析 |
 | `llm.py` | Ollama / OpenAI 兼容客户端、流式解析 | 拼 prompt |
 | `rag_chain.py` | 检索编排、上下文预算、prompt、降级、事件流 | 具体 UI 渲染 |
-| `ingest.py` | 入库事务：解析 → 切分 → 向量化 → 写库 → 登记 | 检索 |
+| `ingest.py` | 入库事务：解析 → 切分 → 向量化 → 写库 → 登记，返回逐文件报告 | 检索 |
+| `text_utils.py` | 展示层文本清洗、截断预览、查询与原文共有短语的高亮 | 检索与生成 |
+| `conversations.py` | 按集合读写对话 JSON（过滤非法消息、上限 200 条、原子写） | 生成回答 |
+| `archive.py` | 集合 zip 导出/导入、白名单校验、导入前 `VectorStore.load` 验证 | 增量同步 |
 | `cli.py` | 参数解析、输出格式化 | 业务逻辑 |
-| `app.py` | 会话状态、上传、进度、来源展示、导出 | 业务逻辑（全部复用上面模块） |
+| `app.py` | 会话状态、上传、进度、来源展示、对话持久化、文档与集合管理 | 业务逻辑（全部复用上面模块） |
 
 依赖方向是单向的：`app.py` / `cli.py` → `rag_chain.py` / `ingest.py` → 其余底层模块。
 底层模块之间不允许反向依赖 UI，这也是测试能不启动界面就跑完的原因。
@@ -76,7 +79,12 @@ data/collections/<集合>/
 ├── vectors.npy      # float32 [n, dim]，已 L2 归一化
 ├── meta.json        # name / chunks / dim / documents / updated_at
 └── documents.json   # 文档登记：doc_id、source、sha256、chunks、pages、ingested_at、embedding
+
+data/conversations/<集合>.json   # role/content/sources/query，最多保留 200 条
 ```
+
+界面把一次提问拆成两段执行：先把用户消息写入 `messages` 并落盘，再 rerun 一次生成回答。
+这样空态引导会在生成开始前退场，流式输出时不会残留示例按钮；代价是多一次很轻的 rerun。
 
 写入使用"临时文件 + 原子替换"，避免进程中断留下半个文件。读取时若 chunk 数与向量行数不匹配，
 直接抛 `VectorStoreError` 并提示"删库重建"，而不是带着错位的数据继续检索。

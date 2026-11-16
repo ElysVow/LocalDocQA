@@ -82,6 +82,19 @@ def test_remove_document(tmp_path):
     assert store.remove_document("doc-1") == 0
 
 
+def test_chunks_for_doc(tmp_path):
+    store, embedder, _ = _build_store(tmp_path, ["块零", "块一"])
+    store.add(
+        [
+            Chunk(id="x", text="另一文档", source="/tmp/b.md", doc_id="doc-2", chunk_index=0)
+        ],
+        embedder.embed_documents(["另一文档"]),
+    )
+    assert [chunk.text for chunk in store.chunks_for_doc("doc-1")] == ["块零", "块一"]
+    assert [chunk.text for chunk in store.chunks_for_doc("doc-2")] == ["另一文档"]
+    assert store.chunks_for_doc("missing") == []
+
+
 def test_collection_manager(tmp_path):
     manager = CollectionManager(tmp_path / "collections")
     assert manager.list_collections() == []

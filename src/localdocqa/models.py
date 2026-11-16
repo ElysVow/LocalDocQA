@@ -87,10 +87,13 @@ class SearchHit:
     chunk: Chunk
     score: float
 
-    def to_source(self, index: int, preview_chars: int = 220) -> Dict[str, Any]:
+    def to_source(self, index: int, preview_chars: int = 220, full_chars: int = 3000) -> Dict[str, Any]:
         # 预览里去掉 Markdown 标题符号，避免界面上一堆 "##"
         raw = re.sub(r"(?m)^#{1,6}\s*", "", self.chunk.text)
-        preview = " ".join(raw.split())
+        full = " ".join(raw.split())
+        if len(full) > full_chars:
+            full = full[:full_chars] + "…"
+        preview = full
         if len(preview) > preview_chars:
             preview = preview[:preview_chars] + "…"
         return {
@@ -101,6 +104,7 @@ class SearchHit:
             "chunk_index": self.chunk.chunk_index,
             "score": round(float(self.score), 4),
             "preview": preview,
+            "text": full,
             "citation": self.chunk.citation(),
         }
 

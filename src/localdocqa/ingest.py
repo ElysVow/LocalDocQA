@@ -34,6 +34,7 @@ class IngestReport:
     chunks: int = 0
     elapsed: float = 0.0
     errors: List[Dict[str, str]] = field(default_factory=list)
+    details: List[Dict[str, object]] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -136,6 +137,9 @@ def ingest(
             existing = by_sha.get(sha)
             if existing and not force:
                 report.skipped_files += 1
+                report.details.append(
+                    {"file": file_path.name, "status": "跳过", "chunks": 0, "reason": "内容与已入库文件相同"}
+                )
                 logger.info("跳过重复文件：%s（已入库为 %s）", file_path.name, existing.get("doc_id"))
                 continue
             if existing and force:
@@ -166,9 +170,15 @@ def ingest(
             by_sha[sha] = entry
             report.new_files += 1
             report.chunks += len(chunks)
+            report.details.append(
+                {"file": file_path.name, "status": "新增", "chunks": len(chunks), "reason": ""}
+            )
         except (OSError, ValueError, RuntimeError, VectorStoreError) as exc:
             logger.warning("处理失败：%s —— %s", file_path.name, exc)
             report.errors.append({"file": str(file_path), "error": str(exc)})
+            report.details.append(
+                {"file": file_path.name, "status": "失败", "chunks": 0, "reason": str(exc)}
+            )
 
     if report.new_files:
         store.save()
