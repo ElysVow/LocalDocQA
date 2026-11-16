@@ -1,0 +1,45 @@
+# ============================================================
+# LocalDocQA 配置文件示例
+# 复制为 config.yaml 后按需修改；缺少 config.yaml 时也会读取本文件。
+# ============================================================
+
+app:
+  title: "LocalDocQA 本地文档问答助手"
+  data_dir: "data"        # 数据目录（相对仓库根目录）
+  log_level: "INFO"
+  history_turns: 3        # 带上下文追问时，最多携带最近几轮对话
+
+llm:
+  provider: "ollama"      # ollama / openai / none（none = 离线原文摘录模式）
+  base_url: "http://127.0.0.1:11434"
+  model: "qwen2.5:7b"     # 显存 8G 建议 7b；更小可用 qwen2.5:3b
+  api_key_env: "OPENAI_API_KEY"   # provider=openai 时读取的环境变量名
+  temperature: 0.2
+  num_ctx: 4096
+  timeout: 180
+  max_context_chars: 6000 # 拼进 prompt 的参考资料字符上限
+
+embeddings:
+  provider: "ollama"      # ollama / hash（hash = 离线词法向量，无需模型）
+  base_url: "http://127.0.0.1:11434"
+  model: "nomic-embed-text"
+  batch_size: 16
+  dim: 256                # 仅 hash 模式使用
+  fallback_to_hash: true  # Ollama 不可用时是否自动降级，避免直接报错
+
+chunking:
+  size: 800               # 单个 chunk 目标长度（字符）
+  overlap: 120            # 相邻 chunk 的重叠长度
+  min_chars: 30           # 过短碎片会被丢弃
+  # 中文标点排在靠前位置，优先在句末断开
+  separators: ["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""]
+
+retrieval:
+  top_k: 5                # 召回条数
+  score_threshold: 0.25   # 语义向量模式的余弦相似度阈值；调低可提高召回、降低精度
+  lexical_relative_cutoff: 0.25  # 离线词法向量模式的相对阈值（相对最高分），绝对阈值在该模式下不适用
+  expand_neighbors: 1     # 命中块的相邻块也一起放进上下文（0 表示关闭）
+  max_chunks_in_context: 8
+
+storage:
+  dir: "data"             # 集合实际存放在 <dir>/collections/<集合名>/

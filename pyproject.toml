@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "localdocqa"
+version = "0.1.0"
+description = "完全本地运行的文档问答工具（RAG）：支持 PDF/Word/Markdown，Ollama 本地推理，回答可溯源"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Yuan Huali" }]
+keywords = ["rag", "llm", "ollama", "document-qa", "privacy", "streamlit"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.24",
+    "pyyaml>=6.0",
+    "requests>=2.31",
+    "pypdf>=4.0",
+    "python-docx>=1.1",
+]
+
+[project.optional-dependencies]
+ui = ["streamlit>=1.31"]
+dev = ["pytest>=7.4", "ruff>=0.4.0", "streamlit>=1.31"]
+
+[project.scripts]
+localdocqa = "localdocqa.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+localdocqa = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B"]
+# 代码里统一用 typing.List / Optional 等写法（对阅读者更直观，也兼容 3.9 环境），故关闭 UP 规则
+ignore = ["E501", "UP006", "UP035", "UP045", "UP037"]

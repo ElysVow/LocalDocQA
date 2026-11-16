@@ -1,0 +1,9 @@
+# 运行时依赖（Python 3.10+）
+numpy>=1.24
+pyyaml>=6.0
+requests>=2.31
+pypdf>=4.0
+python-docx>=1.1
+
+# 网页界面
+streamlit>=1.31

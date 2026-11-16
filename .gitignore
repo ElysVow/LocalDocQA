@@ -1,0 +1,26 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.env
+
+# ---- 本地数据（文档与向量都很大，绝不入库）----
+data/
+config.yaml
+*.tmp
+
+# ---- 工具 ----
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ---- 编辑器/系统 ----
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,83 @@
+{
+  "summary": {
+    "questions": 8,
+    "hit@1": 0.625,
+    "hit@k": 0.875,
+    "kw_recall": 0.875
+  },
+  "rows": [
+    {
+      "question": "TCP 三次握手的三个报文分别是什么",
+      "expected": "02-计算机网络笔记.md",
+      "top": "02-计算机网络笔记.md",
+      "hit@1": true,
+      "hit@k": true,
+      "kw_recall": 1.0,
+      "answer_recall": null
+    },
+    {
+      "question": "TIME-WAIT 为什么要等 2MSL",
+      "expected": "02-计算机网络笔记.md",
+      "top": "03-课程实验提交规范.md",
+      "hit@1": false,
+      "hit@k": true,
+      "kw_recall": 1.0,
+      "answer_recall": null
+    },
+    {
+      "question": "实验报告的截止时间是哪天",
+      "expected": "03-课程实验提交规范.md",
+      "top": "03-课程实验提交规范.md",
+      "hit@1": true,
+      "hit@k": true,
+      "kw_recall": 1.0,
+      "answer_recall": null
+    },
+    {
+      "question": "实验评分标准里功能完成度占多少分",
+      "expected": "03-课程实验提交规范.md",
+      "top": "03-课程实验提交规范.md",
+      "hit@1": true,
+      "hit@k": true,
+      "kw_recall": 1.0,
+      "answer_recall": null
+    },
+    {
+      "question": "项目对隐私和溯源有什么要求",
+      "expected": "01-项目说明.md",
+      "top": "03-课程实验提交规范.md",
+      "hit@1": false,
+      "hit@k": true,
+      "kw_recall": 1.0,
+      "answer_recall": null
+    },
+    {
+      "question": "向量库是用什么实现的",
+      "expected": "01-项目说明.md",
+      "top": "02-计算机网络笔记.md",
+      "hit@1": false,
+      "hit@k": false,
+      "kw_recall": 0.0,
+      "answer_recall": null
+    },
+    {
+      "question": "扫描版 PDF 能不能直接导入",
+      "expected": "01-项目说明.md",
+      "top": "01-项目说明.md",
+      "hit@1": true,
+      "hit@k": true,
+      "kw_recall": 1.0,
+      "answer_recall": null
+    },
+    {
+      "question": "迟交作业会扣分吗",
+      "expected": "03-课程实验提交规范.md",
+      "top": "03-课程实验提交规范.md",
+      "hit@1": true,
+      "hit@k": true,
+      "kw_recall": 1.0,
+      "answer_recall": null
+    }
+  ],
+  "top_k": 5
+}
