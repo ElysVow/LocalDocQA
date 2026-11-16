@@ -136,6 +136,18 @@ python -m localdocqa stats
 python -m localdocqa list -c demo
 ```
 
+### 6. Windows 双击运行
+
+仓库根目录带了两个批处理，双击即可，不需要手动激活虚拟环境：
+
+| 文件 | 作用 |
+| --- | --- |
+| `start.bat` | 启动网页界面，浏览器自动打开 `http://localhost:8501` |
+| `shell.bat` | 打开命令行窗口并激活 `.venv`，可直接输入 `localdocqa ...` |
+
+两者都假定项目根目录已有 `.venv`（第 3 步创建的）。`data/collections/demo` 里已带 3 份示例文档的索引，
+第一次打开就能直接提问；想换成自己的资料，在左侧新建集合后上传即可。
+
 ---
 
 ## 配置
