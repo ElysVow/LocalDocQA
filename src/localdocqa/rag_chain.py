@@ -102,19 +102,14 @@ def _extractive_answer(question: str, hits: Sequence[SearchHit], max_points: int
         "当前为**离线提取模式**（未连接大模型），以下内容直接从命中文档中摘录，未做归纳："
     ]
     lines.extend(picked)
-    lines.append("\n> 提示：启动本地模型（`ollama serve` + `ollama pull qwen2.5:7b`）后可获得归纳式回答。")
     return "\n".join(lines)
 
 
 def _llm_failure_note(config: Config, exc: Exception) -> str:
     """把底层异常翻译成用户能照做的一句话，完整异常只写日志。"""
-    model = config.get("llm.model", "本地模型")
     base_url = config.get("llm.base_url", "http://127.0.0.1:11434")
-    return (
-        f"\n\n> 本地模型暂时不可用（{base_url}，模型 {model}），已改用离线摘录。"
-        "确认 `ollama serve` 正在运行并已执行 `ollama pull "
-        f"{model}` 后重试，即可获得归纳式回答。"
-    )
+    logger.debug("LLM 调用失败 %s: %s", base_url, exc)
+    return "\n\n> 本地模型未连接，已改用离线摘录。执行 `ollama serve` 后重试即可获得归纳式回答。"
 
 
 class RAGEngine:

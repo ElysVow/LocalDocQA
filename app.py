@@ -34,6 +34,17 @@ UPLOAD_TYPES = ["pdf", "docx", "md", "markdown", "txt", "log", "csv", "json", "h
 PAGES = ["问答", "文档", "设置", "关于"]
 
 
+def short_path(source: object) -> str:
+    """表格里显示相对路径，绝对路径太长会把列撑爆。"""
+    if not source:
+        return "-"
+    path = Path(str(source))
+    try:
+        return str(path.resolve().relative_to(ROOT.resolve()))
+    except ValueError:
+        return path.name
+
+
 # ------------------------------------------------------------------ 缓存
 @st.cache_resource(show_spinner=False)
 def cached_embeddings(signature: str):
@@ -44,6 +55,15 @@ def cached_embeddings(signature: str):
 @st.cache_data(show_spinner=False, ttl=300)
 def cached_models(base_url: str):
     return list_ollama_models(base_url)
+
+
+@st.cache_data(show_spinner=False, ttl=120)
+def cached_llm_status(provider: str, base_url: str, model: str) -> tuple[bool, str]:
+    """模型状态探测带缓存：否则每次点击都发一次请求，界面会明显卡顿。"""
+    client = build_llm({"provider": provider, "base_url": base_url, "model": model})
+    if client is None:
+        return True, "未启用（离线提取模式）"
+    return client.health_check()
 
 
 # ------------------------------------------------------------------ 工具
@@ -160,6 +180,7 @@ def render_chat(config: Config, collection: str, top_k: int, stream_mode: bool) 
     with st.chat_message("assistant"):
         if stream_mode:
             placeholder = st.empty()
+            placeholder.markdown("*正在检索文档…*")
             buffer: list[str] = []
             sources: list[dict] = []
             meta = {"used_llm": False, "elapsed": 0.0}
@@ -214,7 +235,7 @@ def render_docs(config: Config, collection: str, top_k: int) -> None:
                     "chunk 数": doc.get("chunks"),
                     "页数": doc.get("pages"),
                     "入库时间": doc.get("ingested_at"),
-                    "路径": doc.get("source"),
+                    "来源路径": short_path(doc.get("source")),
                 }
                 for doc in documents
             ],
@@ -251,7 +272,22 @@ def render_docs(config: Config, collection: str, top_k: int) -> None:
 def render_settings(config: Config) -> None:
     st.subheader("当前配置")
     st.caption("配置文件：" + (str(config.source) if config.source else "未找到，使用内置默认值"))
-    st.json(config.as_dict(), expanded=False)
+
+    provider = str(config.get("llm.provider", "ollama"))
+    model = str(config.get("llm.model", "qwen2.5:7b"))
+    embed_provider = str(config.get("embeddings.provider", "ollama"))
+    embed_model = str(config.get("embeddings.model", "nomic-embed-text"))
+    rows = [
+        ("生成模型", f"{provider} / {model}" if provider != "none" else "未启用（离线提取）"),
+        ("向量模型", f"{embed_provider} / {embed_model}"),
+        ("切分参数", f"{config.get('chunking.size')} 字符，重叠 {config.get('chunking.overlap')}"),
+        ("检索参数", f"top_k={config.get('retrieval.top_k')}，阈值={config.get('retrieval.score_threshold')}"),
+        ("数据目录", str(config.collections_dir())),
+    ]
+    table = ["| 项 | 值 |", "|---|---|"] + [f"| {name} | `{value}` |" for name, value in rows]
+    st.markdown("\n".join(table))
+    with st.expander("完整配置（JSON）"):
+        st.json(config.as_dict(), expanded=True)
 
     models = cached_models(str(config.get("llm.base_url", "http://127.0.0.1:11434")))
     if models:
@@ -359,16 +395,18 @@ def render_sidebar(config: Config) -> tuple[str, int, bool]:
         except EmbeddingError as exc:
             st.caption(f"向量后端异常：{exc}")
 
-        client = build_llm(config.section("llm"))
-        if client is None:
+        provider = str(config.get("llm.provider", "ollama"))
+        base_url = str(config.get("llm.base_url", "http://127.0.0.1:11434"))
+        model = str(config.get("llm.model", "qwen2.5:7b"))
+        healthy, message = cached_llm_status(provider, base_url, model)
+        if provider in ("none", "off", "extractive", ""):
             st.caption("模型：未启用（离线提取模式）")
         else:
-            healthy, message = client.health_check()
-            st.caption(f"模型：`{client.name}` {'可用' if healthy else '不可用'}")
+            st.caption(f"模型：`{model}` {'可用' if healthy else '不可用'}")
             if not healthy:
                 st.caption(message)
                 with st.expander("Ollama 安装提示"):
-                    st.code("ollama serve\nollama pull qwen2.5:7b\nollama pull nomic-embed-text")
+                    st.code(f"ollama serve\nollama pull {model}\nollama pull nomic-embed-text")
 
     return collection, top_k, stream_mode
 
