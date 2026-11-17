@@ -18,9 +18,6 @@ def test_app_runs_without_exception():
     app = AppTest.from_file(str(APP_PATH), default_timeout=60)
     app.run()
     assert not app.exception, f"页面脚本抛异常：{app.exception}"
-    # 侧边栏的页面切换（问答/文档/设置/关于）应该存在
+    # 页面切换（问答/文档/设置/关于）应该存在
     assert len(app.radio) >= 1
     assert set(app.radio[0].options) == {"问答", "文档", "设置", "关于"}
-    # 侧边栏应该有"开始入库"按钮
-    labels = [button.label for button in app.button]
-    assert any("入库" in label for label in labels)

@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import html
 import json
 import sys
 from datetime import datetime
@@ -32,11 +33,10 @@ from localdocqa.conversations import (  # noqa: E402
     load_conversation,
     save_conversation,
 )
-from localdocqa.embeddings import EmbeddingError, build_embeddings, list_ollama_models  # noqa: E402
+from localdocqa.embeddings import build_embeddings, list_ollama_models  # noqa: E402
 from localdocqa.ingest import IngestReport, ingest, list_documents, remove_document  # noqa: E402
-from localdocqa.llm import build_llm  # noqa: E402
 from localdocqa.rag_chain import RAGEngine  # noqa: E402
-from localdocqa.text_utils import highlight  # noqa: E402
+from localdocqa.text_utils import clean_text, highlight  # noqa: E402
 from localdocqa.vector_store import CollectionManager, VectorStoreError  # noqa: E402
 
 SAMPLE_DIR = ROOT / "examples" / "sample_docs"
@@ -45,19 +45,38 @@ PAGES = ["问答", "文档", "设置", "关于"]
 
 CSS = """
 <style>
-.block-container {padding-top: 2.2rem; padding-bottom: 3.5rem; max-width: 1180px;}
-h1 {font-size: 1.9rem !important; letter-spacing: -0.02em; margin-bottom: 0.15rem;}
-h2 {font-size: 1.45rem !important; margin-top: 1.8rem;}
-h3 {font-size: 1.05rem !important; letter-spacing: 0.01em;}
-[data-testid="stMarkdownContainer"] p {line-height: 1.75;}
-[data-testid="stCaptionContainer"] {color: #7b7b7b;}
-[data-testid="stSidebar"] h3 {font-size: 0.92rem !important; color: #4c4c4c;}
-[data-testid="stChatMessage"] {padding: 0.4rem 0;}
-[data-testid="stChatInput"] textarea {font-size: 0.95rem;}
+.block-container {padding-top: 1.5rem; padding-bottom: 7rem; max-width: 1060px;}
+h1 {font-size: 1.55rem !important; font-weight: 650 !important; letter-spacing: -0.02em; margin-bottom: 0.2rem;}
+h2 {font-size: 1.2rem !important; margin-top: 1.5rem;}
+h3 {font-size: 0.98rem !important; letter-spacing: 0.01em;}
+[data-testid="stMarkdownContainer"] p {line-height: 1.72;}
+[data-testid="stCaptionContainer"] {color: #868686;}
+[data-testid="stSidebar"] {background: #fbfbfb;}
+[data-testid="stSidebar"] h3 {font-size: 0.9rem !important; color: #4c4c4c;}
+[data-testid="stChatMessage"] {padding: 0.3rem 0;}
+[data-testid="stChatInput"] textarea {font-size: 0.94rem;}
 mark {background: #ffe58f; color: inherit; padding: 0 2px; border-radius: 3px;}
-.stButton > button {border-radius: 8px;}
-div[data-testid="stDownloadButton"] > button {border-radius: 8px;}
-hr {margin: 1.2rem 0;}
+.stButton > button, div[data-testid="stDownloadButton"] > button {border-radius: 8px;}
+hr {margin: 1rem 0;}
+/* 展开面板去掉外框与底色，只保留一行标题，减少页面上的盒子 */
+[data-testid="stExpander"], [data-testid="stExpander"] details,
+[data-testid="stExpander"] summary {background: transparent !important; border: none !important; box-shadow: none !important;}
+[data-testid="stExpander"] summary {padding: 0.25rem 0 !important; font-size: 0.87rem !important; color: #6f6f6f !important;}
+[data-testid="stExpander"] summary:hover {color: #222 !important;}
+/* 顶部导航改成纯文字标签：隐藏圆点，当前页用下划线标示 */
+[data-testid="stRadioGroup"] {gap: 1.8rem !important;}
+[data-testid="stRadioOption"] {padding: 0 !important;}
+[data-testid="stRadioOption"] > div > div:first-child {display: none !important;}
+[data-testid="stRadioOption"] [data-testid="stMarkdownContainer"] p {font-size: 0.9rem; color: #777;}
+[data-testid="stRadioOption"][data-selected="true"] [data-testid="stMarkdownContainer"] p {
+    color: #1f1f1f; font-weight: 600; border-bottom: 2px solid #1f1f1f; padding-bottom: 2px;}
+/* 来源段落：细线分隔，不再一张卡片套一张卡片 */
+.src {padding: 0.55rem 0 0.8rem; border-bottom: 1px solid #f0f0f0;}
+.src:last-child {border-bottom: none;}
+.src-head {font-size: 0.9rem; font-weight: 600; color: #333;}
+.src-meta {font-size: 0.76rem; color: #949494; margin: 0.15rem 0 0.4rem;}
+.src-text {font-size: 0.84rem; line-height: 1.7; color: #5a5a5a;
+          border-left: 2px solid #e2e5ea; padding-left: 0.65rem;}
 </style>
 """
 
@@ -130,15 +149,6 @@ def cached_models(base_url: str):
     return list_ollama_models(base_url)
 
 
-@st.cache_data(show_spinner=False, ttl=120)
-def cached_llm_status(provider: str, base_url: str, model: str) -> tuple[bool, str]:
-    """模型状态探测带缓存：否则每次点击都发一次请求，界面会明显卡顿。"""
-    client = build_llm({"provider": provider, "base_url": base_url, "model": model})
-    if client is None:
-        return True, "未启用（离线提取模式）"
-    return client.health_check()
-
-
 # ------------------------------------------------------------------ 引擎与数据
 def collection_options() -> list[str]:
     existing = CollectionManager(Config.load().collections_dir()).list_collections()
@@ -189,39 +199,42 @@ def render_report(report: IngestReport | None, details: bool = True) -> None:
 def render_sources(sources: list[dict], query: str = "") -> None:
     if not sources:
         return
-    with st.expander(f"参考来源（{len(sources)} 段）", expanded=False):
+    with st.expander(f"来源 · {len(sources)} 段", expanded=False):
         for source in sources:
-            with st.container(border=True):
-                st.markdown(f"**[{source['index']}] {source['citation']}**")
-                st.markdown(
-                    f"<span style='color:#8a8a8a;font-size:12px'>"
-                    f"相似度 {source['score']} ｜ chunk #{source['chunk_index']}"
-                    f"</span>",
-                    unsafe_allow_html=True,
-                )
-                body = highlight(source.get("preview") or "", query)
-                st.markdown(
-                    f"<div style='font-size:13px;line-height:1.7;color:#5a5a5a;"
-                    f"border-left:3px solid #d9dee6;padding:2px 0 2px 10px;margin:6px 0 4px 0'>"
-                    f"{body}</div>",
-                    unsafe_allow_html=True,
-                )
-                full_text = source.get("text") or source.get("preview") or ""
-                with st.popover("查看原文"):
-                    st.code(full_text, language=None)
+            body = highlight(source.get("preview") or "", query)
+            st.markdown(
+                f"<div class='src'>"
+                f"<div class='src-head'>[{source['index']}] {html.escape(str(source['citation']))}</div>"
+                f"<div class='src-meta'>相似度 {source['score']} · 第 {int(source['chunk_index']) + 1} 段</div>"
+                f"<div class='src-text'>{body}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            full_text = source.get("text") or source.get("preview") or ""
+            with st.popover("原文", type="tertiary"):
+                st.code(full_text, language=None)
+
+
+def split_offline_answer(text: str) -> tuple[str, bool]:
+    """离线摘录的固定前缀和结尾提示不进入正文，只在下面留一行小字说明。"""
+    marker = "当前为**离线提取模式**"
+    if not text.startswith(marker):
+        return text, False
+    body = text.split("\n", 1)[1] if "\n" in text else ""
+    body = body.split("\n\n> 本地模型未连接", 1)[0]
+    return body.strip(), True
 
 
 def render_answer(text: str) -> None:
-    st.markdown(text)
-    with st.popover("复制回答"):
-        st.code(text, language=None)
-
-
-def render_answer_meta(elapsed: float, used_llm: bool) -> None:
-    st.caption(
-        f"耗时 {elapsed:.1f}s ｜ "
-        f"{'模型生成' if used_llm else '离线提取（未接入大模型）'}"
-    )
+    body, offline = split_offline_answer(text)
+    st.markdown(body)
+    meta_col, copy_col = st.columns([8, 1], vertical_alignment="center")
+    with meta_col:
+        if offline:
+            st.caption("离线摘录 · 未连接生成模型")
+    with copy_col:
+        with st.popover("复制", type="tertiary", use_container_width=True):
+            st.code(text, language=None)
 
 
 # ------------------------------------------------------------------ 页面：问答
@@ -238,62 +251,57 @@ def example_questions(collection: str, config: Config) -> list[str]:
     return questions[:3]
 
 
-def render_examples(collection: str, config: Config, expanded: bool) -> None:
-    """示例区常驻页面：空对话时展开做三步引导，有对话后收成一行。
-
-    常驻而不是"有消息就删掉"，是因为 Streamlit 在流式生成期间不会立即清理
-    上一轮末尾的元素，删掉会在回答下方残留一排示例按钮。
-    """
-    with st.expander("示例问题", expanded=expanded):
-        if expanded:
-            st.markdown("#### 三步开始")
-            steps = [
-                ("① 导入资料", "左侧上传 PDF / Word / Markdown，或点「导入示例文档」"),
-                ("② 自动建索引", "切分 → 向量化 → 存入本机，重复文件按内容哈希跳过"),
-                ("③ 提问并溯源", "回答里的 [1] [2] 对应下方来源，可展开看原文"),
-            ]
-            for column, (title, description) in zip(st.columns(3), steps, strict=False):
-                with column:
-                    with st.container(border=True):
-                        st.markdown(f"**{title}**")
-                        st.caption(description)
-            st.markdown("#### 直接试试")
-
-        questions = example_questions(collection, config)
-        for column, question in zip(st.columns(len(questions)), questions, strict=False):
-            with column:
-                if st.button(question, key=f"example-{question}", use_container_width=True):
-                    st.session_state.pending_prompt = question
-                    st.rerun()
+def render_start(collection: str, config: Config) -> None:
+    """空对话时的轻量入口：一句说明 + 三个示例，不占版面。"""
+    st.caption("资料会先在本机建索引，回答会标注原文来源。可以直接输入，也可以从示例开始：")
+    questions = example_questions(collection, config)
+    for column, question in zip(st.columns(len(questions)), questions, strict=False):
+        with column:
+            if st.button(question, key=f"example-{question}", type="tertiary", use_container_width=True):
+                st.session_state.pending_prompt = question
+                st.rerun()
 
 
 def render_chat(config: Config, collection: str, top_k: int, stream_mode: bool) -> None:
-    manager = CollectionManager(config.collections_dir())
-    stats = manager.get(collection).stats()
-    left, middle, right = st.columns([3, 1, 1])
+    stats = CollectionManager(config.collections_dir()).get(collection).stats()
+    left, actions = st.columns([6, 1], vertical_alignment="center")
     with left:
         st.caption(
-            f"当前集合 **{collection}**：{stats.get('documents', 0)} 个文档 / "
-            f"{stats.get('chunks', 0)} 个 chunk"
+            f"{collection} · {stats.get('documents', 0)} 份文档 · {stats.get('chunks', 0)} 个片段"
         )
-    if st.session_state.messages:
-        with middle:
-            st.download_button(
-                "导出对话",
-                data=messages_to_markdown(st.session_state.messages, collection),
-                file_name=f"{collection}-qa-{datetime.now().strftime('%Y%m%d-%H%M')}.md",
-                mime="text/markdown",
-                use_container_width=True,
-            )
-        with right:
-            with st.popover("清空对话", use_container_width=True):
-                st.caption("清空后无法恢复，确认要删除当前对话吗？")
-                if st.button("确认清空", key="confirm-clear-chat"):
+    with actions:
+        if st.session_state.messages:
+            with st.popover("对话", type="tertiary", use_container_width=True):
+                st.download_button(
+                    "导出 Markdown",
+                    data=messages_to_markdown(st.session_state.messages, collection),
+                    file_name=f"{collection}-qa-{datetime.now().strftime('%Y%m%d-%H%M')}.md",
+                    mime="text/markdown",
+                    use_container_width=True,
+                )
+                if (
+                    st.session_state.messages[-1]["role"] == "assistant"
+                    and len(st.session_state.messages) >= 2
+                ):
+                    if st.button("重新生成上一条", key="regenerate", use_container_width=True):
+                        last_question = st.session_state.messages[-2]["content"]
+                        st.session_state.messages.pop()
+                        if st.session_state.messages[-1]["role"] == "user":
+                            st.session_state.messages.pop()
+                        save_conversation(collection, st.session_state.messages, config)
+                        st.session_state.pending_prompt = last_question
+                        st.rerun()
+                st.caption("清空后无法恢复")
+                confirm_clear = st.checkbox("确认清空对话", key="clear-chat-confirm")
+                if st.button("清空对话", disabled=not confirm_clear, use_container_width=True):
                     st.session_state.messages = []
                     clear_conversation(collection, config)
                     st.rerun()
 
-    render_examples(collection, config, expanded=not st.session_state.messages)
+    intro = st.empty()
+    if not st.session_state.messages:
+        with intro.container():
+            render_start(collection, config)
 
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -303,20 +311,6 @@ def render_chat(config: Config, collection: str, top_k: int, stream_mode: bool) 
                 st.markdown(message["content"])
             if message.get("sources"):
                 render_sources(message["sources"], message.get("query", ""))
-
-    if (
-        st.session_state.messages
-        and st.session_state.messages[-1]["role"] == "assistant"
-        and len(st.session_state.messages) >= 2
-    ):
-        if st.button("重新生成上一条回答", key="regenerate"):
-            last_question = st.session_state.messages[-2]["content"]
-            st.session_state.messages.pop()
-            if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-                st.session_state.messages.pop()
-            save_conversation(collection, st.session_state.messages, config)
-            st.session_state.pending_prompt = last_question
-            st.rerun()
 
     # 第二步：上一轮已经把提问写入 messages，这里只负责生成回答。
     # 分成两步是为了先让空态引导退场，避免回答流式输出时还残留示例卡片。
@@ -333,7 +327,6 @@ def render_chat(config: Config, collection: str, top_k: int, stream_mode: bool) 
                 placeholder.markdown("*正在检索文档…*")
                 buffer: list[str] = []
                 sources: list[dict] = []
-                meta = {"used_llm": False, "elapsed": 0.0}
                 for event in engine.stream(request, history=history):
                     if event["type"] == "token":
                         buffer.append(event["text"])
@@ -342,9 +335,9 @@ def render_chat(config: Config, collection: str, top_k: int, stream_mode: bool) 
                         sources = event["sources"]
                     elif event["type"] == "done":
                         answer = event["answer"]
-                        meta = {"used_llm": answer.used_llm, "elapsed": answer.elapsed}
                         sources = answer.sources
-                        placeholder.markdown(answer.text)
+                        body, _ = split_offline_answer(answer.text)
+                        placeholder.markdown(body)
                         buffer = [answer.text]
                     elif event["type"] == "error":
                         placeholder.error(event["message"])
@@ -354,7 +347,6 @@ def render_chat(config: Config, collection: str, top_k: int, stream_mode: bool) 
                         save_conversation(collection, st.session_state.messages, config)
                         st.stop()
                 answer_text = "".join(buffer)
-                render_answer_meta(meta["elapsed"], meta["used_llm"])
                 render_sources(sources, request)
                 st.session_state.messages.append(
                     {"role": "assistant", "content": answer_text, "sources": sources, "query": request}
@@ -362,7 +354,6 @@ def render_chat(config: Config, collection: str, top_k: int, stream_mode: bool) 
             else:
                 answer = engine.answer(request, history=history)
                 render_answer(answer.text)
-                render_answer_meta(answer.elapsed, answer.used_llm)
                 render_sources(answer.sources, request)
                 st.session_state.messages.append(
                     {
@@ -393,22 +384,22 @@ def render_document_detail(config: Config, collection: str, document: dict) -> N
     tabs = st.tabs(["内容预览", "文件信息", "删除"])
     with tabs[0]:
         chunks = store.chunks_for_doc(doc_id)
-        st.caption(f"共 {len(chunks)} 段，下面展示前 6 段")
+        st.caption(f"共 {len(chunks)} 段")
         for chunk in chunks[:6]:
-            with st.container(border=True):
-                page = f" · 第 {chunk.page} 页" if chunk.page else ""
-                st.caption(f"chunk #{chunk.chunk_index}{page}")
-                text = chunk.text.strip()
-                st.markdown(text[:900] + ("…" if len(text) > 900 else ""))
+            page = f" · 第 {chunk.page} 页" if chunk.page else ""
+            st.caption(f"第 {chunk.chunk_index + 1} 段{page}")
+            text = clean_text(chunk.text)
+            st.markdown(text[:900] + ("…" if len(text) > 900 else ""))
+            st.divider()
         if len(chunks) > 6:
-            st.info(f"还有 {len(chunks) - 6} 段未展示，可用命令行 `localdocqa search` 进一步检索。")
+            st.caption(f"还有 {len(chunks) - 6} 段未展示。")
     with tabs[1]:
         st.dataframe(
             [
                 {"字段": "文件名", "值": document.get("filename")},
                 {"字段": "来源路径", "值": document.get("source")},
                 {"字段": "大小", "值": format_size(document.get("size"))},
-                {"字段": "chunk 数", "值": str(document.get("chunks") or 0)},
+                {"字段": "片段数", "值": str(document.get("chunks") or 0)},
                 {"字段": "页数", "值": str(document.get("pages") or 0)},
                 {"字段": "入库时间", "值": document.get("ingested_at") or "-"},
                 {"字段": "向量模型", "值": document.get("embedding") or "-"},
@@ -435,20 +426,16 @@ def render_docs(config: Config, collection: str, top_k: int) -> None:
     if not total_size:
         total_size = dir_size(store.path)
 
-    columns = st.columns(4)
-    with columns[0]:
-        st.metric("文档", stats.get("documents", 0))
-    with columns[1]:
-        st.metric("chunk", stats.get("chunks", 0))
-    with columns[2]:
-        st.metric("向量维度", stats.get("dim", 0))
-    with columns[3]:
-        st.metric("占用空间", format_size(total_size))
-
+    st.caption(
+        f"{stats.get('documents', 0)} 份文档 · {stats.get('chunks', 0)} 个片段 · "
+        f"{format_size(total_size)}"
+    )
     if not documents:
-        st.info("还没有文档。可以在左侧上传文件，或点击「导入示例文档」。")
+        st.info("还没有文档。可以在左侧「导入文档」里上传，或先载入示例。")
     else:
-        keyword = st.text_input("按文件名筛选", placeholder="输入文件名片段，例如 实验", key="doc-filter")
+        keyword = st.text_input(
+            "筛选", placeholder="按文件名筛选", label_visibility="collapsed", key="doc-filter"
+        )
         visible = [
             doc for doc in documents if keyword.strip() == "" or keyword.strip() in str(doc.get("filename"))
         ]
@@ -458,8 +445,8 @@ def render_docs(config: Config, collection: str, top_k: int) -> None:
                     "文件名": doc.get("filename"),
                     "类型": file_type_label(doc.get("filename")),
                     "大小": format_size(doc.get("size")),
-                    "chunk 数": doc.get("chunks"),
-                    "页数": doc.get("pages"),
+                    "片段数": doc.get("chunks"),
+                    "页数": str(doc.get("pages")) if doc.get("pages") else "-",
                     "入库时间": doc.get("ingested_at") or "-",
                     "来源路径": short_path(doc.get("source")),
                 }
@@ -473,7 +460,8 @@ def render_docs(config: Config, collection: str, top_k: int) -> None:
                 "查看文档详情",
                 options=[doc.get("filename") for doc in visible],
                 index=None,
-                placeholder="选择一份文档",
+                placeholder="打开一份文档查看详情",
+                label_visibility="collapsed",
                 key="doc-detail",
             )
             if selected:
@@ -482,7 +470,7 @@ def render_docs(config: Config, collection: str, top_k: int) -> None:
         else:
             st.caption("没有匹配的文件名。")
 
-    with st.expander("集合维护：重建索引 / 导出 / 查看体积"):
+    with st.expander("集合维护"):
         st.caption(
             f"数据目录：`{store.path}` ｜ 共 {format_size(dir_size(store.path))}"
         )
@@ -502,7 +490,7 @@ def render_docs(config: Config, collection: str, top_k: int) -> None:
                 st.caption(f"暂不可导出：{exc}")
             else:
                 st.download_button(
-                    "导出当前集合（zip）",
+                    "导出集合 zip",
                     data=payload,
                     file_name=f"{collection}.zip",
                     mime="application/zip",
@@ -510,7 +498,7 @@ def render_docs(config: Config, collection: str, top_k: int) -> None:
                 )
         render_report(st.session_state.get("last_report"))
 
-    with st.expander("检索调试：只看召回，不生成回答"):
+    with st.expander("检索调试"):
         query = st.text_input("输入查询文本", key="debug_query")
         if query:
             hits = build_engine(collection, config).retrieve(query, top_k=top_k)
@@ -524,7 +512,7 @@ def render_docs(config: Config, collection: str, top_k: int) -> None:
 # ------------------------------------------------------------------ 页面：设置
 def render_settings(config: Config) -> None:
     st.subheader("当前配置")
-    st.caption("配置文件：" + (str(config.source) if config.source else "未找到，使用内置默认值"))
+    st.caption("配置文件：" + (short_path(config.source) if config.source else "使用内置默认值"))
 
     provider = str(config.get("llm.provider", "ollama"))
     model = str(config.get("llm.model", "qwen2.5:7b"))
@@ -533,9 +521,9 @@ def render_settings(config: Config) -> None:
     rows = [
         ("生成模型", f"{provider} / {model}" if provider != "none" else "未启用（离线提取）"),
         ("向量模型", f"{embed_provider} / {embed_model}"),
-        ("切分参数", f"{config.get('chunking.size')} 字符，重叠 {config.get('chunking.overlap')}"),
-        ("检索参数", f"top_k={config.get('retrieval.top_k')}，阈值={config.get('retrieval.score_threshold')}"),
-        ("数据目录", str(config.collections_dir())),
+        ("切分", f"{config.get('chunking.size')} 字 / 重叠 {config.get('chunking.overlap')} 字"),
+        ("检索", f"召回 {config.get('retrieval.top_k')} 段 · 阈值 {config.get('retrieval.score_threshold')}"),
+        ("数据目录", short_path(config.collections_dir())),
     ]
     table = ["| 项 | 值 |", "|---|---|"] + [f"| {name} | `{value}` |" for name, value in rows]
     st.markdown("\n".join(table))
@@ -547,23 +535,21 @@ def render_settings(config: Config) -> None:
         st.subheader("本地已安装模型")
         st.code("\n".join(models))
 
-    st.subheader("数据占用")
     collections_size = dir_size(config.collections_dir())
     conversations_size = dir_size(conversations_dir(config))
-    columns = st.columns(3)
-    with columns[0]:
-        st.metric("向量库", format_size(collections_size))
-    with columns[1]:
-        st.metric("对话记录", format_size(conversations_size))
-    with columns[2]:
-        st.metric("上传缓存", format_size(dir_size(config.data_dir() / "uploads")))
-    confirm_clear = st.checkbox("确认删除所有集合的对话记录（不影响文档与向量）", key="clear-all-confirm")
-    if st.button("清理全部对话记录", disabled=not confirm_clear):
-        for path in conversations_dir(config).glob("*.json"):
-            path.unlink()
-        st.session_state.messages = []
-        st.success("已清理所有对话记录")
-        st.rerun()
+    st.caption(
+        f"向量库 {format_size(collections_size)} · 对话 {format_size(conversations_size)} · "
+        f"上传缓存 {format_size(dir_size(config.data_dir() / 'uploads'))}"
+    )
+    with st.expander("清理对话记录"):
+        st.caption("只删除对话 JSON，不影响文档、向量与原始文件。")
+        confirm_clear = st.checkbox("确认删除所有集合的对话记录", key="clear-all-confirm")
+        if st.button("清理全部对话记录", disabled=not confirm_clear):
+            for path in conversations_dir(config).glob("*.json"):
+                path.unlink()
+            st.session_state.messages = []
+            st.success("已清理所有对话记录")
+            st.rerun()
 
     st.caption(
         "修改配置：编辑项目根目录的 config.yaml 后重启应用；"
@@ -604,112 +590,88 @@ def render_about() -> None:
 # ------------------------------------------------------------------ 侧边栏
 def render_sidebar(config: Config) -> tuple[str, int, bool]:
     with st.sidebar:
-        st.subheader("知识库")
         collections = collection_options()
         current = st.session_state.get("collection", collections[0])
         if current not in collections:
             current = collections[0]
-        collection = st.selectbox("当前集合", collections, index=collections.index(current))
+        collection = st.selectbox(
+            "知识库", collections, index=collections.index(current), label_visibility="visible"
+        )
         st.session_state.collection = collection
+        store = CollectionManager(config.collections_dir()).get(collection)
+        document_count = store.stats().get("documents", 0)
 
-        with st.expander("管理集合"):
-            new_name = st.text_input("新集合名称", placeholder="例如：毕业论文", key="new-collection")
-            if st.button("创建集合", use_container_width=True):
+        with st.expander("导入文档", expanded=document_count == 0):
+            uploaded = st.file_uploader(
+                "选择文件（可多选）",
+                type=UPLOAD_TYPES,
+                accept_multiple_files=True,
+                help="PDF / Word / Markdown / TXT / CSV / JSON / HTML",
+                key="uploader",
+            )
+            if uploaded:
+                if st.button(f"入库 {len(uploaded)} 个文件", type="primary", use_container_width=True):
+                    upload_dir = config.data_dir() / "uploads"
+                    upload_dir.mkdir(parents=True, exist_ok=True)
+                    saved: list[str] = []
+                    for item in uploaded:
+                        target = upload_dir / Path(item.name).name
+                        target.write_bytes(item.getbuffer())
+                        saved.append(str(target))
+                    st.session_state.last_report = do_ingest(saved, collection, config)
+                    st.rerun()
+            if document_count == 0 and SAMPLE_DIR.is_dir():
+                if st.button("先导入 3 份示例文档", type="tertiary", use_container_width=True):
+                    st.session_state.last_report = do_ingest([str(SAMPLE_DIR)], collection, config)
+                    st.rerun()
+
+        render_report(st.session_state.get("last_report"), details=False)
+
+        with st.expander("集合管理"):
+            st.caption("新建集合")
+            new_name = st.text_input(
+                "新建集合",
+                placeholder="例如：毕业论文",
+                label_visibility="collapsed",
+                key="new-collection",
+            )
+            if st.button("创建", use_container_width=True):
                 if new_name.strip():
                     manager = CollectionManager(config.collections_dir())
                     manager.ensure(new_name.strip())
                     st.session_state.collection = CollectionManager.normalize_name(new_name)
-                    st.success(f"已创建集合：{st.session_state.collection}")
                     st.rerun()
                 else:
                     st.warning("请输入集合名称")
 
+            st.caption("导入集合 zip")
             archive_file = st.file_uploader(
-                "导入集合（.zip）",
+                "导入集合",
                 type=["zip"],
                 key="import-archive",
-                help="由「文档」页导出的集合压缩包",
+                label_visibility="collapsed",
             )
-            if st.button("导入集合", disabled=archive_file is None, use_container_width=True):
+            if st.button("导入", disabled=archive_file is None, use_container_width=True):
                 try:
                     imported = import_collection(archive_file.getvalue(), config)
                 except VectorStoreError as exc:
                     st.error(f"导入失败：{exc}")
                 else:
                     st.session_state.collection = imported
-                    st.success(f"已导入集合：{imported}")
                     st.rerun()
 
-            confirm = st.checkbox("我确认要删除当前集合的全部数据", key="delete-collection")
-            if st.button("删除当前集合", disabled=not confirm, use_container_width=True):
+            st.caption("删除集合")
+            confirm = st.checkbox("确认删除当前集合及对话", key="delete-collection")
+            if st.button("删除", disabled=not confirm, use_container_width=True):
                 CollectionManager(config.collections_dir()).delete(collection)
                 clear_conversation(collection, config)
                 st.session_state.messages = []
                 st.session_state.pop("collection", None)
                 st.session_state.loaded_collection = None
-                st.warning(f"已删除集合：{collection}")
                 st.rerun()
 
-        st.divider()
-        st.subheader("导入文档")
-        uploaded = st.file_uploader(
-            "选择文件（可多选）",
-            type=UPLOAD_TYPES,
-            accept_multiple_files=True,
-            help="支持 PDF / Word / Markdown / TXT / CSV / JSON / HTML",
-            key="uploader",
-        )
-        force = st.checkbox("忽略重复，强制重新入库")
-        if st.button("开始入库", type="primary", use_container_width=True, disabled=not uploaded):
-            upload_dir = config.data_dir() / "uploads"
-            upload_dir.mkdir(parents=True, exist_ok=True)
-            saved: list[str] = []
-            for item in uploaded:
-                target = upload_dir / Path(item.name).name
-                target.write_bytes(item.getbuffer())
-                saved.append(str(target))
-            st.session_state.last_report = do_ingest(saved, collection, config, force=force)
-            st.rerun()
-
-        if SAMPLE_DIR.is_dir() and st.button("导入示例文档", use_container_width=True):
-            st.session_state.last_report = do_ingest([str(SAMPLE_DIR)], collection, config, force=force)
-            st.rerun()
-
-        render_report(st.session_state.get("last_report"), details=False)
-
-        st.divider()
-        with st.expander("检索参数", expanded=True):
-            top_k = st.slider("召回条数 top_k", 1, 12, int(config.get("retrieval.top_k", 5)))
-            threshold = st.slider(
-                "相关度阈值", -1.0, 1.0, float(config.get("retrieval.score_threshold", 0.25)), 0.01
-            )
-            stream_mode = st.toggle("流式输出", value=True)
-
-        config.set("retrieval.top_k", top_k)
-        config.set("retrieval.score_threshold", threshold)
-
-        st.divider()
-        st.subheader("运行状态")
-        try:
-            embedder = cached_embeddings(json.dumps(config.section("embeddings"), sort_keys=True))
-            st.caption(f"向量后端：`{embedder.name}`")
-        except EmbeddingError as exc:
-            st.caption(f"向量后端异常：{exc}")
-
-        provider = str(config.get("llm.provider", "ollama"))
-        base_url = str(config.get("llm.base_url", "http://127.0.0.1:11434"))
-        model = str(config.get("llm.model", "qwen2.5:7b"))
-        healthy, message = cached_llm_status(provider, base_url, model)
-        if provider in ("none", "off", "extractive", ""):
-            st.caption("模型：未启用（离线提取模式）")
-        else:
-            st.caption(f"模型：`{model}` {'可用' if healthy else '不可用'}")
-            if not healthy:
-                st.caption(message)
-                with st.expander("Ollama 安装提示"):
-                    st.code(f"ollama serve\nollama pull {model}\nollama pull nomic-embed-text")
-
-    return collection, top_k, stream_mode
+    top_k = int(config.get("retrieval.top_k", 5))
+    return collection, top_k, True
 
 
 # ------------------------------------------------------------------ 入口
@@ -727,8 +689,7 @@ def main() -> None:
         st.session_state.loaded_collection = collection
 
     page = st.radio("功能", PAGES, horizontal=True, label_visibility="collapsed")
-    st.title("LocalDocQA · 本地文档问答助手")
-    st.caption("文档与向量全部保存在本机，只在本地调用模型，不上传任何内容到云端。")
+    st.title("LocalDocQA" if page == "问答" else page)
 
     if page == "问答":
         render_chat(config, collection, top_k, stream_mode)
