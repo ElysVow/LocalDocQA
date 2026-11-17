@@ -268,6 +268,12 @@ CI 在 3.10/3.11/3.12/3.13 四个版本上跑 lint + 测试，另有一个 job �
 
 ---
 
+## 更新日志
+
+版本变更见 [CHANGELOG.md](CHANGELOG.md)，首个公开版本说明见 [docs/release-v0.2.0.md](docs/release-v0.2.0.md)。
+
+---
+
 ## 路线图
 
 短期与中期计划见 [docs/ROADMAP.md](docs/ROADMAP.md)。当前 v0.2 已完成：多格式入库、增量去重、本机向量库、
