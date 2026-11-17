@@ -45,7 +45,10 @@ PAGES = ["问答", "文档", "设置", "关于"]
 
 CSS = """
 <style>
-.block-container {padding-top: 1.5rem; padding-bottom: 7rem; max-width: 1060px;}
+.block-container {padding-top: 1.5rem; padding-bottom: 4rem; max-width: 1320px; margin-left: auto !important; margin-right: auto !important;}
+[data-testid="stBottomBlockContainer"] {max-width: 1320px; margin-left: auto !important; margin-right: auto !important;}
+/* 对话较短时贴住输入框，避免正文悬在顶部、下方留一大片空白 */
+.st-key-chat-thread {min-height: calc(100vh - 27rem); display: flex; flex-direction: column; justify-content: flex-end;}
 h1 {font-size: 1.55rem !important; font-weight: 650 !important; letter-spacing: -0.02em; margin-bottom: 0.2rem;}
 h2 {font-size: 1.2rem !important; margin-top: 1.5rem;}
 h3 {font-size: 0.98rem !important; letter-spacing: 0.01em;}
@@ -252,57 +255,15 @@ def example_questions(collection: str, config: Config) -> list[str]:
 
 
 def render_start(collection: str, config: Config) -> None:
-    """空对话时的轻量入口：一句说明 + 三个示例，不占版面。"""
+    """空对话时的轻量入口：一句说明 + 三个纵向示例，不占版面。"""
     st.caption("资料会先在本机建索引，回答会标注原文来源。可以直接输入，也可以从示例开始：")
-    questions = example_questions(collection, config)
-    for column, question in zip(st.columns(len(questions)), questions, strict=False):
-        with column:
-            if st.button(question, key=f"example-{question}", type="tertiary", use_container_width=True):
-                st.session_state.pending_prompt = question
-                st.rerun()
+    for question in example_questions(collection, config):
+        if st.button(question, key=f"example-{question}", type="tertiary"):
+            st.session_state.pending_prompt = question
+            st.rerun()
 
 
-def render_chat(config: Config, collection: str, top_k: int, stream_mode: bool) -> None:
-    stats = CollectionManager(config.collections_dir()).get(collection).stats()
-    left, actions = st.columns([6, 1], vertical_alignment="center")
-    with left:
-        st.caption(
-            f"{collection} · {stats.get('documents', 0)} 份文档 · {stats.get('chunks', 0)} 个片段"
-        )
-    with actions:
-        if st.session_state.messages:
-            with st.popover("对话", type="tertiary", use_container_width=True):
-                st.download_button(
-                    "导出 Markdown",
-                    data=messages_to_markdown(st.session_state.messages, collection),
-                    file_name=f"{collection}-qa-{datetime.now().strftime('%Y%m%d-%H%M')}.md",
-                    mime="text/markdown",
-                    use_container_width=True,
-                )
-                if (
-                    st.session_state.messages[-1]["role"] == "assistant"
-                    and len(st.session_state.messages) >= 2
-                ):
-                    if st.button("重新生成上一条", key="regenerate", use_container_width=True):
-                        last_question = st.session_state.messages[-2]["content"]
-                        st.session_state.messages.pop()
-                        if st.session_state.messages[-1]["role"] == "user":
-                            st.session_state.messages.pop()
-                        save_conversation(collection, st.session_state.messages, config)
-                        st.session_state.pending_prompt = last_question
-                        st.rerun()
-                st.caption("清空后无法恢复")
-                confirm_clear = st.checkbox("确认清空对话", key="clear-chat-confirm")
-                if st.button("清空对话", disabled=not confirm_clear, use_container_width=True):
-                    st.session_state.messages = []
-                    clear_conversation(collection, config)
-                    st.rerun()
-
-    intro = st.empty()
-    if not st.session_state.messages:
-        with intro.container():
-            render_start(collection, config)
-
+def render_thread(config: Config, collection: str, stream_mode: bool) -> None:
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             if message["role"] == "assistant":
@@ -366,6 +327,52 @@ def render_chat(config: Config, collection: str, top_k: int, stream_mode: bool) 
         save_conversation(collection, st.session_state.messages, config)
         # 重跑一次，让“重新生成 / 清空 / 导出”等依赖消息状态的控件立即出现
         st.rerun()
+
+
+def render_chat(config: Config, collection: str, top_k: int, stream_mode: bool) -> None:
+    stats = CollectionManager(config.collections_dir()).get(collection).stats()
+    left, actions = st.columns([6, 1], vertical_alignment="center")
+    with left:
+        st.caption(
+            f"{collection} · {stats.get('documents', 0)} 份文档 · {stats.get('chunks', 0)} 个片段"
+        )
+    with actions:
+        if st.session_state.messages:
+            with st.popover("对话", type="tertiary", use_container_width=True):
+                st.download_button(
+                    "导出 Markdown",
+                    data=messages_to_markdown(st.session_state.messages, collection),
+                    file_name=f"{collection}-qa-{datetime.now().strftime('%Y%m%d-%H%M')}.md",
+                    mime="text/markdown",
+                    use_container_width=True,
+                )
+                if (
+                    st.session_state.messages[-1]["role"] == "assistant"
+                    and len(st.session_state.messages) >= 2
+                ):
+                    if st.button("重新生成上一条", key="regenerate", use_container_width=True):
+                        last_question = st.session_state.messages[-2]["content"]
+                        st.session_state.messages.pop()
+                        if st.session_state.messages[-1]["role"] == "user":
+                            st.session_state.messages.pop()
+                        save_conversation(collection, st.session_state.messages, config)
+                        st.session_state.pending_prompt = last_question
+                        st.rerun()
+                st.caption("清空后无法恢复")
+                confirm_clear = st.checkbox("确认清空对话", key="clear-chat-confirm")
+                if st.button("清空对话", disabled=not confirm_clear, use_container_width=True):
+                    st.session_state.messages = []
+                    clear_conversation(collection, config)
+                    st.rerun()
+
+    intro = st.empty()
+    if not st.session_state.messages:
+        with intro.container():
+            render_start(collection, config)
+
+    if st.session_state.messages:
+        with st.container(key="chat-thread"):
+            render_thread(config, collection, stream_mode)
 
     pending = st.session_state.pop("pending_prompt", None)
     typed = st.chat_input("针对文档提问，例如：这份文档的核心结论是什么？")
@@ -511,50 +518,48 @@ def render_docs(config: Config, collection: str, top_k: int) -> None:
 
 # ------------------------------------------------------------------ 页面：设置
 def render_settings(config: Config) -> None:
-    st.subheader("当前配置")
-    st.caption("配置文件：" + (short_path(config.source) if config.source else "使用内置默认值"))
-
     provider = str(config.get("llm.provider", "ollama"))
     model = str(config.get("llm.model", "qwen2.5:7b"))
     embed_provider = str(config.get("embeddings.provider", "ollama"))
     embed_model = str(config.get("embeddings.model", "nomic-embed-text"))
     rows = [
-        ("生成模型", f"{provider} / {model}" if provider != "none" else "未启用（离线提取）"),
-        ("向量模型", f"{embed_provider} / {embed_model}"),
-        ("切分", f"{config.get('chunking.size')} 字 / 重叠 {config.get('chunking.overlap')} 字"),
-        ("检索", f"召回 {config.get('retrieval.top_k')} 段 · 阈值 {config.get('retrieval.score_threshold')}"),
-        ("数据目录", short_path(config.collections_dir())),
+        {"项": "生成模型", "值": f"{provider} / {model}" if provider != "none" else "未启用（离线提取）"},
+        {"项": "向量模型", "值": f"{embed_provider} / {embed_model}"},
+        {"项": "切分", "值": f"{config.get('chunking.size')} 字 / 重叠 {config.get('chunking.overlap')} 字"},
+        {"项": "检索", "值": f"召回 {config.get('retrieval.top_k')} 段 · 阈值 {config.get('retrieval.score_threshold')}"},
+        {"项": "数据目录", "值": short_path(config.collections_dir())},
     ]
-    table = ["| 项 | 值 |", "|---|---|"] + [f"| {name} | `{value}` |" for name, value in rows]
-    st.markdown("\n".join(table))
-    with st.expander("完整配置（JSON）"):
-        st.json(config.as_dict(), expanded=True)
+
+    left, right = st.columns([3, 2], gap="large")
+    with left:
+        st.subheader("当前配置")
+        st.caption("配置文件：" + (short_path(config.source) if config.source else "使用内置默认值"))
+        st.dataframe(rows, hide_index=True, use_container_width=True)
+        with st.expander("完整配置（JSON）"):
+            st.json(config.as_dict(), expanded=True)
+    with right:
+        st.subheader("数据占用")
+        st.caption(f"向量库 {format_size(dir_size(config.collections_dir()))}")
+        st.caption(f"对话记录 {format_size(dir_size(conversations_dir(config)))}")
+        st.caption(f"上传缓存 {format_size(dir_size(config.data_dir() / 'uploads'))}")
+        with st.expander("清理对话记录"):
+            st.caption("只删除对话 JSON，不影响文档、向量与原始文件。")
+            confirm_clear = st.checkbox("确认删除所有集合的对话记录", key="clear-all-confirm")
+            if st.button("清理全部对话记录", disabled=not confirm_clear):
+                for path in conversations_dir(config).glob("*.json"):
+                    path.unlink()
+                st.session_state.messages = []
+                st.success("已清理所有对话记录")
+                st.rerun()
+        st.caption(
+            "修改配置：编辑项目根目录的 config.yaml 后重启应用；"
+            "也可在终端用 `python -m localdocqa check` 检查环境。"
+        )
 
     models = cached_models(str(config.get("llm.base_url", "http://127.0.0.1:11434")))
     if models:
         st.subheader("本地已安装模型")
         st.code("\n".join(models))
-
-    collections_size = dir_size(config.collections_dir())
-    conversations_size = dir_size(conversations_dir(config))
-    st.caption(
-        f"向量库 {format_size(collections_size)} · 对话 {format_size(conversations_size)} · "
-        f"上传缓存 {format_size(dir_size(config.data_dir() / 'uploads'))}"
-    )
-    with st.expander("清理对话记录"):
-        st.caption("只删除对话 JSON，不影响文档、向量与原始文件。")
-        confirm_clear = st.checkbox("确认删除所有集合的对话记录", key="clear-all-confirm")
-        if st.button("清理全部对话记录", disabled=not confirm_clear):
-            for path in conversations_dir(config).glob("*.json"):
-                path.unlink()
-            st.session_state.messages = []
-            st.success("已清理所有对话记录")
-            st.rerun()
-
-    st.caption(
-        "修改配置：编辑项目根目录的 config.yaml 后重启应用；"
-        "也可在终端用 `python -m localdocqa check` 检查环境。"
-    )
 
 
 def render_about() -> None:
