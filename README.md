@@ -4,11 +4,9 @@
 提问时先在本机检索最相关的若干段，再交给本机模型归纳，回答后面跟着 `[1]` `[2]` 这样的来源编号，
 能直接对应到文件名、页码和原文片段。文档、向量、对话记录都不离开本机。
 
-![CI](https://github.com/YOUR-NAME/LocalDocQA/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/Elysia2025/LocalDocQA/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-
-> 上面第一条徽章的仓库地址请换成你自己的 GitHub 用户名；CI 配置已随仓库提供。
 
 ---
 
@@ -105,7 +103,7 @@ ollama pull nomic-embed-text     # 向量模型，约 274 MB
 ### 3. 安装依赖
 
 ```bash
-git clone https://github.com/YOUR-NAME/LocalDocQA.git
+git clone https://github.com/Elysia2025/LocalDocQA.git
 cd LocalDocQA
 python -m venv .venv
 # Windows: .venv\Scripts\activate    macOS/Linux: source .venv/bin/activate

@@ -3,7 +3,7 @@
 ## 环境
 
 ```bash
-git clone https://github.com/YOUR-NAME/LocalDocQA.git
+git clone https://github.com/Elysia2025/LocalDocQA.git
 cd LocalDocQA
 python -m venv .venv
 # Windows: .venv\Scripts\activate    macOS/Linux: source .venv/bin/activate
